@@ -5,7 +5,9 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"regexp"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -18,6 +20,7 @@ var (
 		ServerStreams: true,
 		ClientStreams: true,
 	}
+	prefixes = []string{"no", "de"}
 )
 
 // RegisterService sets up a proxy handler for a particular gRPC service and method.
@@ -52,6 +55,17 @@ type handler struct {
 	director StreamDirector
 }
 
+func hasPrefix(str string, prefixes []string) bool {
+
+	for _, prefix := range prefixes {
+		match, _ := regexp.MatchString(fmt.Sprintf("/apilink.%s.*", prefix), str)
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
 // handler is where the real magic of proxying happens.
 // It is invoked like any gRPC server stream and uses the anypb.Any type server
 // to proxy calls between the input and output streams.
@@ -60,6 +74,9 @@ func (s *handler) handler(srv interface{}, serverStream grpc.ServerStream) error
 	fullMethodName, ok := grpc.MethodFromServerStream(serverStream)
 	if !ok {
 		return status.Errorf(codes.Internal, "lowLevelServerStream not exists in context")
+	}
+	if !hasPrefix(fullMethodName, prefixes) {
+		fullMethodName = fmt.Sprintf("/apilink.no%s", fullMethodName[8:])
 	}
 	// We require that the director's returned context inherits from the serverStream.Context().
 	outgoingCtx, backendConn, err := s.director(serverStream.Context(), fullMethodName)
